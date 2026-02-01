@@ -1,0 +1,16 @@
+/venv/
+/.venv/
+/.idea/
+/src/uploads/
+/logs/
+/.git/
+__pycache__/
+logs/
+dist/
+build/
+*.pyc
+*.spec
+*.bin
+*.db
+*.spec
+.env
