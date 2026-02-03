@@ -1,7 +1,9 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+
 from eimzo import list_eimzo_certificates, eimzo_pkcs7_timestamp
+
 
 app = FastAPI(
     title="E-IMZO Client",
@@ -49,4 +51,4 @@ async def sign(request: SignRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8444)
+    uvicorn.run(app, host="0.0.0.0", port=8444)
