@@ -1,8 +1,36 @@
+import asyncio
+import sys
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 
-from eimzo import list_eimzo_certificates, eimzo_pkcs7_timestamp
+from eimzo import EimzoApiError, list_eimzo_certificates, eimzo_pkcs7_timestamp
+
+
+def win_selector_loop_factory() -> asyncio.AbstractEventLoop:
+    """Selector loop on Windows; bundled in main.py so PyInstaller includes it (not loop_factory:...)."""
+    return asyncio.SelectorEventLoop()
+
+
+def _eimzo_http_exception(exc: EimzoApiError) -> HTTPException:
+    """Map E-IMZO business errors to 4xx; leave unknown failures as 502."""
+    p = exc.payload
+    status = p.get("status")
+    reason = str(p.get("reason") or "").lower()
+    # -5000: PIN/password dialog cancelled (typical E-IMZO)
+    if status == -5000 or "парол" in reason or "password" in reason:
+        code = 400
+    else:
+        code = 502
+    return HTTPException(
+        status_code=code,
+        detail={
+            "success": False,
+            "eimzo_status": p.get("status"),
+            "reason": p.get("reason"),
+        },
+    )
 
 
 app = FastAPI(
@@ -28,6 +56,8 @@ async def list_certificates():
     try:
         certs = await list_eimzo_certificates(ORIGIN)
         return {"certificates": certs}
+    except EimzoApiError as e:
+        raise _eimzo_http_exception(e)
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
 
@@ -45,10 +75,19 @@ async def sign(request: SignRequest):
             request.data_b64, ORIGIN, request.cert_index
         )
         return {"pkcs7_64": pkcs7_64, "signature_hex": signature_hex}
+    except EimzoApiError as e:
+        raise _eimzo_http_exception(e)
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8444)
+
+    # Uvicorn forces ProactorEventLoop on Windows; Selector avoids E-IMZO RST noise.
+    # __main__:... works for python main.py and PyInstaller (no separate loop_factory module).
+    loop_kw = {}
+    if sys.platform == "win32":
+        loop_kw["loop"] = "__main__:win_selector_loop_factory"
+
+    uvicorn.run(app, host="0.0.0.0", port=8444, **loop_kw)
